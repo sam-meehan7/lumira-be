@@ -44,7 +44,8 @@ for i in tqdm(range(0, len(data), batch_size)):
             'text': x['text'],
             'url': x['url'],
             'start': x['start'],
-            'end': x['end']
+            'end': x['end'],
+            'title': x['title']
         }
         for _, x in batch.iterrows()
     ]
