@@ -12,7 +12,6 @@ from langchain.prompts.chat import (
     HumanMessagePromptTemplate,
 )
 
-
 load_dotenv()
 
 chat = ChatOpenAI(openai_api_key=os.environ["OPENAI_API_KEY"], model='gpt-3.5-turbo')
@@ -32,7 +31,7 @@ text_field = "text"  # the metadata field that contains our text
 vectorstore = Pinecone(index, embed_model.embed_query, text_field)
 
 
-def augment_prompt(query: str):
+def search_vectorstore(query: str):
     # get top 3 results from knowledge base
     results = vectorstore.similarity_search(query, k=3)
 
@@ -40,8 +39,12 @@ def augment_prompt(query: str):
     with open('results.json', 'w') as f:
         json.dump([result.__dict__ for result in results], f)
 
+    return results
+
+
+def augment_prompt(query: str, vector_results):
     # get the text from the results
-    source_knowledge = "\n".join([x.page_content for x in results])
+    source_knowledge = "\n".join([x.page_content for x in vector_results])
     # feed into an augmented prompt
     augmented_prompt = f"""Using the contexts below, answer the query.
 
@@ -51,26 +54,24 @@ def augment_prompt(query: str):
     Query: {query}"""
     return augmented_prompt
 
+def answer_question(question):
+    vector_results = search_vectorstore(question)
 
-question = "How big is the engine in the BMW XM?"
+    augmented_prompt = augment_prompt(question, vector_results)
 
-augmented_prompt = augment_prompt(question)
+    template = "You are an expert on cars and talk like a Irish car sales lad. {add_aug_prompt_here}"
 
-template = "You are an expert on cars and talk like a Irish car sales lad. {add_aug_prompt_here}"
+    system_message_prompt = SystemMessagePromptTemplate.from_template(template)
+    human_template = "{text}"
+    human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
 
-system_message_prompt = SystemMessagePromptTemplate.from_template(template)
-human_template = "{text}"
-human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
+    chat_prompt = ChatPromptTemplate.from_messages(
+        [system_message_prompt, human_message_prompt]
+    )
 
-chat_prompt = ChatPromptTemplate.from_messages(
-    [system_message_prompt, human_message_prompt]
-)
-
-
-result = chat(
-    chat_prompt.format_prompt(
-        add_aug_prompt_here=augmented_prompt, text=""
-    ).to_messages()
-)
-
-print(result)
+    result = chat(
+        chat_prompt.format_prompt(
+            add_aug_prompt_here=augmented_prompt, text=""
+        ).to_messages()
+    )
+    return [result.content, vector_results]
