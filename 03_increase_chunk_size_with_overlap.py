@@ -3,7 +3,7 @@ from tqdm import tqdm
 
 new_data = []
 
-window = 8  # number of sentences to combine
+window = 9  # number of sentences to combine
 stride = 3  # number of sentences to 'stride' over, used to create overlap
 
 # Open the JSONL file
