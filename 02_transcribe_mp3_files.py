@@ -7,7 +7,7 @@ from tqdm.auto import tqdm
 video_dict = {}
 
 # Read video_dict from the 'data' directory
-with open('data/video_dict.json', 'r') as json_file:
+with open('data/video_dict.json', 'r', encoding='utf-8') as json_file:
     video_dict = json.load(json_file)
 
 # Get a list of MP3 audio files from the 'data' directory

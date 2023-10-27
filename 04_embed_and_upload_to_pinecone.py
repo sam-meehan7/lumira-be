@@ -21,35 +21,39 @@ index = pinecone.Index('youtube')
 embed_model = OpenAIEmbeddings(model="text-embedding-ada-002")
 
 
-with open('data/youtube-transcriptions-part-2.jsonl', 'r') as f:
+with open('data/youtube-transcriptions-part-2.jsonl', 'r', encoding='utf-8') as f:
     dataset = [json.loads(line) for line in f]
 
 data = pd.DataFrame(dataset)
 
 batch_size = 100
 
-for i in tqdm(range(0, len(data), batch_size)):
-    i_end = min(len(data), i + batch_size)
+for batch_start in tqdm(range(0, len(data), batch_size)):
+    batch_end = min(len(data), batch_start + batch_size)
     # get batch of data
-    batch = data.iloc[i:i_end]
+    data_batch = data.iloc[batch_start:batch_end]
     # generate unique ids for each chunk
-    ids = [x['id'] for _, x in batch.iterrows()]
+    unique_ids = [data_row['id'] for _, data_row in data_batch.iterrows()]
     # get text to embed
-    texts = [x['text'] for _, x in batch.iterrows()]
+    text_to_embed = [data_row['text'] for _, data_row in data_batch.iterrows()]
     # embed text
-    embeds = embed_model.embed_documents(texts)
+    embedded_text = embed_model.embed_documents(text_to_embed)
     # get metadata to store in Pinecone
-    metadata = [
+    pinecone_metadata = [
         {
-            'text': x['text'],
-            'url': x['url'],
-            'start': x['start'],
-            'end': x['end'],
-            'title': x['title'],
+            'text': data_row['text'],
+            'url': data_row['url'],
+            'start': data_row['start'],
+            'end': data_row['end'],
+            'title': data_row['title'],
+            'thumbnail': data_row['thumbnail'],
+            'author': data_row['author'],
+            'channel_id': data_row['channel_id'],
+            'channel_url': data_row['channel_url'],
         }
-        for _, x in batch.iterrows()
+        for _, data_row in data_batch.iterrows()
     ]
     # add to Pinecone
-    index.upsert(vectors=zip(ids, embeds, metadata))
+    index.upsert(vectors=zip(unique_ids, embedded_text, pinecone_metadata))
 
 print(index.describe_index_stats())

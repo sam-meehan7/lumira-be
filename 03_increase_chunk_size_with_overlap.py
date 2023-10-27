@@ -26,6 +26,10 @@ for i in tqdm(range(0, len(data), stride)):
             'id': data[i]['id'],
             'url': data[i]['url'],
             'title': data[i]['title'],
+            'thumbnail': data[i]['thumbnail'],
+            'author': data[i]['author'],
+            'channel_id': data[i]['channel_id'],
+            'channel_url': data[i]['channel_url'],
         }
     )
 

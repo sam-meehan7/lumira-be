@@ -1,6 +1,7 @@
 import json
 import os
-from pytube import YouTube
+from typing import List
+from pytube import YouTube, exceptions
 import moviepy.editor as mp
 
 # Initialize an empty dictionary to store video details
@@ -11,7 +12,7 @@ if not os.path.exists('data'):
     os.makedirs('data')
 
 
-def download_audio(video_ids):
+def download_audio(video_ids: List[str]):
     for video_id in video_ids:
         url = f'https://www.youtube.com/watch?v={video_id}'
 
@@ -25,7 +26,14 @@ def download_audio(video_ids):
             print(f'Views: {yt.views}')
 
             # Store metadata in video_dict
-            video_dict[video_id] = {'title': yt.title, 'url': url}
+            video_dict[video_id] = {
+                'title': yt.title,
+                'url': url,
+                'thumbnail': yt.thumbnail_url,
+                'author': yt.author,
+                'channel_id': yt.channel_id,
+                'channel_url': yt.channel_url,
+            }
 
             # Try to get the mp4 audio stream
             audio_stream = yt.streams.filter(
@@ -77,17 +85,18 @@ def download_audio(video_ids):
                     )
                 else:
                     print(f'No audio stream found for video id: {video_id}')
-        except Exception as e:
+        except (exceptions.PytubeError, OSError) as e:
             print(f'An error occurred while processing video id {video_id}: {e}')
 
     # Write video_dict to a JSON file within the 'data' directory
-    with open(os.path.join('data', 'video_dict.json'), 'w') as json_file:
+    with open(
+        os.path.join('data', 'video_dict.json'), 'w', encoding='utf-8'
+    ) as json_file:
         json.dump(video_dict, json_file)
 
 
 # Read video IDs from a text file and store them in a list
-with open('video_ids.txt', 'r') as file:
-    video_ids = [line.strip() for line in file]
+with open('video_ids.txt', 'r', encoding='utf-8') as file:
+    video_ids_to_download = [line.strip() for line in file]
 
-# Call the function to download audio
-download_audio(video_ids)
+download_audio(video_ids_to_download)

@@ -32,5 +32,3 @@ if submit_button:
 
         # Display the clickable link
         st.markdown(f"[{title}]({clickable_url})")
-
-
