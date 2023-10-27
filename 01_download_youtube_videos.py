@@ -37,7 +37,9 @@ def download_audio(video_ids):
 
             if audio_stream:
                 # Download the mp4 audio stream
-                audio_stream.download(output_path=output_path)
+                audio_stream.download(
+                    output_path=output_path, filename=f'{video_id}.mp4'
+                )
 
                 # Convert mp4 to mp3
                 audio_clip = mp.AudioFileClip(
@@ -58,7 +60,9 @@ def download_audio(video_ids):
 
                 if audio_stream:
                     # Download the webm audio stream
-                    audio_stream.download(output_path=output_path)
+                    audio_stream.download(
+                        output_path=output_path, filename=f'{video_id}.webm'
+                    )
 
                     # Convert webm to mp3
                     audio_clip = mp.AudioFileClip(
