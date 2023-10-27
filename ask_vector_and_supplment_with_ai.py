@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import Pinecone
 import json
+import cohere
 
 from langchain.prompts.chat import (
     ChatPromptTemplate,
@@ -13,6 +14,10 @@ from langchain.prompts.chat import (
 )
 
 load_dotenv()
+
+os.environ["COHERE_API_KEY"] = os.getenv("COHERE_API_KEY") or getpass.getpass()
+# init client
+co = cohere.Client(os.environ["COHERE_API_KEY"])
 
 chat = ChatOpenAI(openai_api_key=os.environ["OPENAI_API_KEY"], model='gpt-3.5-turbo')
 
@@ -33,14 +38,43 @@ vectorstore = Pinecone(index, embed_model.embed_query, text_field)
 
 def search_vectorstore(query: str):
     # get top 3 results from knowledge base
-    results = vectorstore.similarity_search(query, k=3)
+    results = vectorstore.similarity_search(query, k=15)
 
-    # save results to json file
-    with open('results.json', 'w') as f:
-        json.dump([result.__dict__ for result in results], f)
+    # Convert results to format suitable for Cohere reranking
+    documents_to_rerank = [{"text": result.page_content} for result in results]
 
-    return results
+    # Use Cohere to rerank the documents
+    reranked_response = co.rerank(query=query, documents=documents_to_rerank, model="rerank-english-v2.0")
+    reranked_indices = [result.index for result in reranked_response]
 
+    # Take the top 3 reranked results
+    top_3_results = [results[i] for i in reranked_indices[:3]]
+
+    return top_3_results
+
+def test_ranking(query: str):
+    # get results from the vectorstore without reranking
+    unranked_results = vectorstore.similarity_search(query, k=15)
+    unranked_content = [result.page_content for result in unranked_results]
+
+    # get top 3 reranked results
+    ranked_results = search_vectorstore(query)
+    ranked_content = [result.page_content for result in ranked_results]
+
+    # Display the content more clearly
+    print("===== Unranked Content =====")
+    for i, content in enumerate(unranked_content[:3], start=1):  # Displaying the top 3 for brevity
+        print(f"--- Result {i} ---")
+        print(content)
+        print("\n")
+
+    print("===== Ranked Content =====")
+    for i, content in enumerate(ranked_content, start=1):
+        print(f"--- Result {i} ---")
+        print(content)
+        print("\n")
+
+    return unranked_content, ranked_content
 
 def augment_prompt(query: str, vector_results):
     # get the text from the results
@@ -68,6 +102,8 @@ def answer_question(question):
     chat_prompt = ChatPromptTemplate.from_messages(
         [system_message_prompt, human_message_prompt]
     )
+
+    test_ranking(question)
 
     result = chat(
         chat_prompt.format_prompt(
