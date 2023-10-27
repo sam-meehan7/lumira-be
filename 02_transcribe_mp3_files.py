@@ -1,41 +1,50 @@
-import whisper
-from tqdm.auto import tqdm
 from pathlib import Path
 import json
-import json
+import whisper
+from tqdm.auto import tqdm
 
-
+# Initialize an empty dictionary to store video details
 video_dict = {}
-with open('video_dict.json', 'r') as json_file:
+
+# Read video_dict from the 'data' directory
+with open('data/video_dict.json', 'r') as json_file:
     video_dict = json.load(json_file)
 
+# Get a list of MP3 audio files from the 'data' directory
+paths = [str(x) for x in Path('./data').glob('*.mp3')]
 
-# get list of MP3 audio files
-paths = [str(x) for x in Path('./').glob('*.mp3')]
+# Load the whisper model
 model = whisper.load_model("base")
+
+# Initialize an empty list to store data
 data = []
 
+# Loop through each audio file path
 for i, path in enumerate(tqdm(paths)):
-    _id = path.split('/')[-1][:-4]
-    # transcribe to get speech-to-text data
+    # Extract the video ID from the file name
+    _id = Path(path).stem  # Using pathlib's stem method to get the file's root name
+
+    # Transcribe to get speech-to-text data
     result = model.transcribe(path)
     segments = result['segments']
-    # get the video metadata...
-    video_meta = video_dict[_id]
+
+    # Get the video metadata
+    video_meta = video_dict.get(_id, {})
+
+    # Loop through each segment and merge metadata
     for j, segment in enumerate(segments):
-        # merge segments data and videos_meta data
         meta = {
             **video_meta,
-            **{
-                "id": f"{_id}-t{segments[j]['start']}",
-                "text": segment["text"].strip(),
-                "start": segment['start'],
-                "end": segment['end'],
-            },
+            "id": f"{_id}-t{segments[j]['start']}",
+            "text": segment["text"].strip(),
+            "start": segment['start'],
+            "end": segment['end'],
         }
         data.append(meta)
 
-with open("youtube-transcriptions.jsonl", "w", encoding="utf-8") as fp:
+
+# Write data to a JSONL file in the 'data' directory
+with open("data/youtube-transcriptions.jsonl", "w", encoding="utf-8") as fp:
     for line in tqdm(data):
         json.dump(line, fp)
         fp.write('\n')

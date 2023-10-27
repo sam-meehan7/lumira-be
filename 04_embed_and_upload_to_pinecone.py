@@ -21,7 +21,7 @@ index = pinecone.Index('youtube')
 embed_model = OpenAIEmbeddings(model="text-embedding-ada-002")
 
 
-with open('youtube-transcriptions-part-2.jsonl', 'r') as f:
+with open('data/youtube-transcriptions-part-2.jsonl', 'r') as f:
     dataset = [json.loads(line) for line in f]
 
 data = pd.DataFrame(dataset)
@@ -45,7 +45,7 @@ for i in tqdm(range(0, len(data), batch_size)):
             'url': x['url'],
             'start': x['start'],
             'end': x['end'],
-            'title': x['title']
+            'title': x['title'],
         }
         for _, x in batch.iterrows()
     ]
