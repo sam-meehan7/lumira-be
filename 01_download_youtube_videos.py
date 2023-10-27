@@ -22,8 +22,9 @@ def download_audio(video_ids: List[str]):
             # Access and print metadata
             print(f'Title: {yt.title}')
             print(f'Author: {yt.author}')
-            print(f'Description: {yt.description}')
-            print(f'Views: {yt.views}')
+            print(f'Thumbnail URL: {yt.thumbnail_url}')
+            print(f'Channel ID:: {yt.channel_id}')
+            print(f'Channel URL: {yt.channel_url}')
 
             # Store metadata in video_dict
             video_dict[video_id] = {
