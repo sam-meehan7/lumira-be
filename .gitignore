@@ -5,3 +5,4 @@
 *.jsonl
 __pycache__/
 data/
+video_ids.txt
