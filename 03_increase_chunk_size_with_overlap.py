@@ -3,12 +3,12 @@ from tqdm import tqdm
 
 new_data = []
 
-window = 6  # number of sentences to combine
+window = 9  # number of sentences to combine
 stride = 3  # number of sentences to 'stride' over, used to create overlap
 
 # Open the JSONL file
 data = []
-with open('youtube-transcriptions.jsonl', 'r') as f:
+with open('data/youtube-transcriptions.jsonl', 'r') as f:
     for line in f:
         data.append(json.loads(line))
 
@@ -25,12 +25,16 @@ for i in tqdm(range(0, len(data), stride)):
             'text': text,
             'id': data[i]['id'],
             'url': data[i]['url'],
-            'title': data[i]['title']
+            'title': data[i]['title'],
+            'thumbnail': data[i]['thumbnail'],
+            'author': data[i]['author'],
+            'channel_id': data[i]['channel_id'],
+            'channel_url': data[i]['channel_url'],
         }
     )
 
 # Save to new JSONL file
-with open("youtube-transcriptions-part-2.jsonl", "w", encoding="utf-8") as fp:
+with open("data/youtube-transcriptions-part-2.jsonl", "w", encoding="utf-8") as fp:
     for line in tqdm(new_data):
         json.dump(line, fp)
         fp.write('\n')

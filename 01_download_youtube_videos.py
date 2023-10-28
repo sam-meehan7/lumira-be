@@ -1,76 +1,103 @@
 import json
-from pytube import YouTube
-import moviepy.editor as mp
 import os
+from typing import List
+from pytube import YouTube, exceptions
+import moviepy.editor as mp
 
+# Initialize an empty dictionary to store video details
 video_dict = {}
 
+# Create a data directory if it doesn't exist
+if not os.path.exists('data'):
+    os.makedirs('data')
 
-def download_audio(video_ids):
+
+def download_audio(video_ids: List[str]):
     for video_id in video_ids:
         url = f'https://www.youtube.com/watch?v={video_id}'
 
         try:
             yt = YouTube(url)
 
-            # Accessing metadata
+            # Access and print metadata
             print(f'Title: {yt.title}')
             print(f'Author: {yt.author}')
-            print(f'Description: {yt.description}')
+            print(f'Thumbnail URL: {yt.thumbnail_url}')
+            print(f'Channel ID:: {yt.channel_id}')
+            print(f'Channel URL: {yt.channel_url}')
 
-            print(f'Views: {yt.views}')
+            # Store metadata in video_dict
+            video_dict[video_id] = {
+                'title': yt.title,
+                'url': url,
+                'thumbnail': yt.thumbnail_url,
+                'author': yt.author,
+                'channel_id': yt.channel_id,
+                'channel_url': yt.channel_url,
+            }
 
-            video_dict[video_id] = {}
-            video_dict[video_id]['title'] = yt.title
-            video_dict[video_id]['url'] = url
-
-            # First, try to get the mp4 audio stream
+            # Try to get the mp4 audio stream
             audio_stream = yt.streams.filter(
                 only_audio=True, file_extension='mp4'
             ).first()
+
+            # Define the output path within the 'data' directory
+            output_path = os.path.join('data', f'{video_id}')
+
             if audio_stream:
-                # Download the audio stream
-                output_path = audio_stream.download(filename=f'{video_id}')
-                # Get the filename from the output path
-                filename = os.path.basename(output_path)
-                # Convert the audio to mp3
-                audio_clip = mp.AudioFileClip(filename)
-                audio_clip.write_audiofile(
-                    f'{os.path.splitext(filename)[0]}.mp3', codec='mp3'
+                # Download the mp4 audio stream
+                audio_stream.download(
+                    output_path=output_path, filename=f'{video_id}.mp4'
                 )
+
+                # Convert mp4 to mp3
+                audio_clip = mp.AudioFileClip(
+                    os.path.join(output_path, f'{video_id}.mp4')
+                )
+                audio_clip.write_audiofile(
+                    os.path.join(output_path, f'{video_id}.mp3'), codec='mp3'
+                )
+
                 print(
                     f'MP4 audio downloaded and converted to mp3 for video id: {video_id}'
                 )
             else:
-                # If mp4 audio stream is not available, try to get the webm audio stream
+                # If mp4 is not available, try webm
                 audio_stream = yt.streams.filter(
                     only_audio=True, file_extension='webm'
                 ).first()
+
                 if audio_stream:
-                    # Download the audio stream
-                    output_path = audio_stream.download(filename=f'{video_id}')
-                    # Get the filename from the output path
-                    filename = os.path.basename(output_path)
-                    # Convert the audio to mp3
-                    audio_clip = mp.AudioFileClip(filename)
-                    audio_clip.write_audiofile(
-                        f'{os.path.splitext(filename)[0]}.mp3', codec='mp3'
+                    # Download the webm audio stream
+                    audio_stream.download(
+                        output_path=output_path, filename=f'{video_id}.webm'
                     )
+
+                    # Convert webm to mp3
+                    audio_clip = mp.AudioFileClip(
+                        os.path.join(output_path, f'{video_id}.webm')
+                    )
+                    audio_clip.write_audiofile(
+                        os.path.join(output_path, f'{video_id}.mp3'), codec='mp3'
+                    )
+
                     print(
                         f'WebM audio downloaded and converted to mp3 for video id: {video_id}'
                     )
                 else:
                     print(f'No audio stream found for video id: {video_id}')
-        except Exception as e:
+        except (exceptions.PytubeError, OSError) as e:
             print(f'An error occurred while processing video id {video_id}: {e}')
 
-    # Write video_dict to a json file
-    with open('video_dict.json', 'w') as json_file:
+    # Write video_dict to a JSON file within the 'data' directory
+    with open(
+        os.path.join('data', 'video_dict.json'), 'w', encoding='utf-8'
+    ) as json_file:
         json.dump(video_dict, json_file)
 
 
-# List of YouTube video ids
-video_ids = ["d-p1LxIIkiA", "oLZQ6LsUgkg", "LfI1SdbZbdY"]
+# Read video IDs from a text file and store them in a list
+with open('video_ids.txt', 'r', encoding='utf-8') as file:
+    video_ids_to_download = [line.strip() for line in file]
 
-# # Call the function to download audio
-download_audio(video_ids)
+download_audio(video_ids_to_download)
