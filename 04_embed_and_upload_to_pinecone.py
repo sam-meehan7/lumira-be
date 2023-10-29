@@ -5,13 +5,12 @@ from dotenv import load_dotenv
 import pandas as pd
 
 from langchain.embeddings.openai import OpenAIEmbeddings
-from tqdm.auto import tqdm  # for progress bar
+from tqdm.auto import tqdm
 
 
 load_dotenv()
 
-
-# get API key from app.pinecone.io and environment from console
+# Initialize Pinecone
 pinecone.init(
     api_key=os.environ['PINECONE_API_KEY'], environment=os.environ['PINECONE_ENV']
 )
@@ -19,7 +18,6 @@ pinecone.init(
 index = pinecone.Index('youtube')
 
 embed_model = OpenAIEmbeddings(model="text-embedding-ada-002")
-
 
 with open('data/youtube-transcriptions-part-2.jsonl', 'r', encoding='utf-8') as f:
     dataset = [json.loads(line) for line in f]
@@ -38,7 +36,7 @@ for batch_start in tqdm(range(0, len(data), batch_size)):
     text_to_embed = [data_row['text'] for _, data_row in data_batch.iterrows()]
     # embed text
     embedded_text = embed_model.embed_documents(text_to_embed)
-    # get metadata to store in Pinecone
+    # Create metadata dictionary
     pinecone_metadata = [
         {
             'text': data_row['text'],
@@ -53,7 +51,6 @@ for batch_start in tqdm(range(0, len(data), batch_size)):
         }
         for _, data_row in data_batch.iterrows()
     ]
-    # add to Pinecone
-    index.upsert(vectors=zip(unique_ids, embedded_text, pinecone_metadata))
 
-print(index.describe_index_stats())
+    # Add to Pinecone
+    index.upsert(vectors=zip(unique_ids, embedded_text, pinecone_metadata))

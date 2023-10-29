@@ -18,7 +18,7 @@ os.environ["COHERE_API_KEY"] = os.getenv("COHERE_API_KEY")
 # init client
 co = cohere.Client(os.environ["COHERE_API_KEY"])
 
-chat = ChatOpenAI(openai_api_key=os.environ["OPENAI_API_KEY"], model='gpt-3.5-turbo')
+chat = ChatOpenAI(openai_api_key=os.environ["OPENAI_API_KEY"], model='gpt-4-0613')
 
 # get API key from app.pinecone.io and environment from console
 pinecone.init(
