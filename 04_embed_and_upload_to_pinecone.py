@@ -1,6 +1,7 @@
 import os
 import json
-import pinecone
+import time
+from pinecone import Pinecone
 from dotenv import load_dotenv
 import pandas as pd
 
@@ -11,15 +12,19 @@ from tqdm.auto import tqdm
 load_dotenv()
 
 # Initialize Pinecone
-pinecone.init(
-    api_key=os.environ['PINECONE_API_KEY'], environment=os.environ['PINECONE_ENV']
-)
+pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
 
-index = pinecone.Index('youtube')
+index_name = "youtube"
 
 embed_model = OpenAIEmbeddings(model="text-embedding-ada-002")
 
-with open('data/youtube-transcriptions-part-2.jsonl', 'r', encoding='utf-8') as f:
+# connect to index
+index = pc.Index(index_name)
+time.sleep(1)
+# view index stats
+index.describe_index_stats()
+
+with open("data/youtube-transcriptions-part-2.jsonl", "r", encoding="utf-8") as f:
     dataset = [json.loads(line) for line in f]
 
 data = pd.DataFrame(dataset)
@@ -31,23 +36,23 @@ for batch_start in tqdm(range(0, len(data), batch_size)):
     # get batch of data
     data_batch = data.iloc[batch_start:batch_end]
     # generate unique ids for each chunk
-    unique_ids = [data_row['id'] for _, data_row in data_batch.iterrows()]
+    unique_ids = [data_row["id"] for _, data_row in data_batch.iterrows()]
     # get text to embed
-    text_to_embed = [data_row['text'] for _, data_row in data_batch.iterrows()]
+    text_to_embed = [data_row["text"] for _, data_row in data_batch.iterrows()]
     # embed text
     embedded_text = embed_model.embed_documents(text_to_embed)
     # Create metadata dictionary
     pinecone_metadata = [
         {
-            'text': data_row['text'],
-            'url': data_row['url'],
-            'start': data_row['start'],
-            'end': data_row['end'],
-            'title': data_row['title'],
-            'thumbnail': data_row['thumbnail'],
-            'author': data_row['author'],
-            'channel_id': data_row['channel_id'],
-            'channel_url': data_row['channel_url'],
+            "text": data_row["text"],
+            "url": data_row["url"],
+            "start": data_row["start"],
+            "end": data_row["end"],
+            "title": data_row["title"],
+            "thumbnail": data_row["thumbnail"],
+            "author": data_row["author"],
+            "channel_id": data_row["channel_id"],
+            "channel_url": data_row["channel_url"],
         }
         for _, data_row in data_batch.iterrows()
     ]
