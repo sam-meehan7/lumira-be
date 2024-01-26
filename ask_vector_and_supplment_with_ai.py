@@ -1,9 +1,11 @@
 import os
-import pinecone
+from pinecone import Pinecone as PineconePincone
+
 from langchain.chat_models import ChatOpenAI
-from dotenv import load_dotenv
 from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.vectorstores import Pinecone
+from langchain.vectorstores import Pinecone as VectorstorePinecone
+
+from dotenv import load_dotenv
 import cohere
 
 from langchain.prompts.chat import (
@@ -20,19 +22,15 @@ co = cohere.Client(os.environ["COHERE_API_KEY"])
 
 chat = ChatOpenAI(openai_api_key=os.environ["OPENAI_API_KEY"], model='gpt-4-0613')
 
-# get API key from app.pinecone.io and environment from console
-pinecone.init(
-    api_key=os.environ['PINECONE_API_KEY'], environment=os.environ['PINECONE_ENV']
-)
+pc = PineconePincone(api_key=os.environ["PINECONE_API_KEY"])
+index = pc.Index("donedeal-car-reviews")
 
-index = pinecone.Index('youtube')
-
-embed_model = OpenAIEmbeddings(model="text-embedding-ada-002")
+embed_model = OpenAIEmbeddings(model="text-embedding-3-large")
 
 text_field = "text"  # the metadata field that contains our text
 
 # pylint: disable=not-callable
-vectorstore = Pinecone(index, embed_model.embed_query, text_field)
+vectorstore = VectorstorePinecone(index, embed_model.embed_query, text_field)
 
 
 def search_vectorstore(query: str):

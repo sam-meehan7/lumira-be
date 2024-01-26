@@ -8,15 +8,14 @@ import pandas as pd
 from langchain.embeddings.openai import OpenAIEmbeddings
 from tqdm.auto import tqdm
 
-
 load_dotenv()
 
 # Initialize Pinecone
 pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
 
-index_name = "youtube"
+index_name = "dd-car-reviews"
 
-embed_model = OpenAIEmbeddings(model="text-embedding-ada-002")
+embed_model = OpenAIEmbeddings(model="text-embedding-3-large")
 
 # connect to index
 index = pc.Index(index_name)
