@@ -13,7 +13,7 @@ load_dotenv()
 # Initialize Pinecone
 pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
 
-index_name = "dd-car-reviews"
+index_name = "donedeal-car-reviews"
 
 embed_model = OpenAIEmbeddings(model="text-embedding-3-large")
 
