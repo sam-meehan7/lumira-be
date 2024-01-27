@@ -6,6 +6,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from pydub import AudioSegment
 import time
+import traceback
 
 load_dotenv()
 
@@ -20,7 +21,7 @@ def load_video_dict(path):
         return {}
 
 
-def create_chunks(audio_path, chunk_minutes_length=2):
+def create_chunks(audio_path, chunk_seconds_length):
     file_name = os.path.basename(audio_path)
     base_name, _ = os.path.splitext(file_name)
     chunk_dir = os.path.join("data", base_name)
@@ -35,10 +36,22 @@ def create_chunks(audio_path, chunk_minutes_length=2):
     audio_list = []
 
     audio = AudioSegment.from_mp3(audio_path)
-    chunk_duration_ms = chunk_minutes_length * 60 * 1000  # Convert to milliseconds
+    chunk_duration_ms = chunk_seconds_length * 1000  # Convert to milliseconds
+    print(f"↪ Chunk duration: {chunk_duration_ms} ms")
 
-    for i, chunk in enumerate(audio[::chunk_duration_ms]):
-        chunk_name = chunk_pattern.format(i)
+    # Calculate the total duration of the audio in milliseconds
+    total_duration_ms = len(audio)
+
+    # Iterate over the audio in increments of chunk_duration_ms
+    for start_ms in range(0, total_duration_ms, chunk_duration_ms):
+        end_ms = start_ms + chunk_duration_ms
+
+        # Ensure the end_ms does not exceed the total_duration_ms
+        end_ms = min(end_ms, total_duration_ms)
+
+        # Extract the chunk
+        chunk = audio[start_ms:end_ms]
+        chunk_name = chunk_pattern.format(start_ms // chunk_duration_ms)
         chunk_path = os.path.join(chunk_dir, chunk_name)
 
         if not os.path.exists(chunk_path):
@@ -47,6 +60,7 @@ def create_chunks(audio_path, chunk_minutes_length=2):
         audio_list.append((chunk_path, chunk_duration_sec))
 
     return audio_list
+
 
 
 def call_openai_api(audio_file):
@@ -61,7 +75,9 @@ def call_openai_api(audio_file):
                 )
             return response
         except Exception as e:
-            print(f"OpenAI API error on attempt {attempt + 1}: {e}")
+            error_info = traceback.format_exc()  # Capture full traceback
+            # Log the exception type, message, and full traceback
+            print(f"OpenAI API error on attempt {attempt + 1}: {type(e).__name__}: {str(e)}\n{error_info}")
             if attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_DELAY)
             else:
@@ -69,33 +85,15 @@ def call_openai_api(audio_file):
     return None
 
 
-def is_transcription_completed(chunk_id):
-    try:
-        with open("data/youtube-transcriptions.jsonl", "r", encoding="utf-8") as fp:
-            for line in fp:
-                transcription = json.loads(line)
-                if transcription.get("id", "") == chunk_id:
-                    return True
-    except FileNotFoundError:
-        # File not found, so no transcriptions have been completed
-        return False
-    return False
-
-
 def transcribe(audio_list, video_meta):
     print(f"↪ Chunk size: {len(audio_list)}")
+
     transcriptions = []
     total_time_elapsed = 0  # Keeps track of the elapsed time
 
     for audio, duration in audio_list:
         audio_file = Path(audio)
         chunk_id = f"{audio_file.stem}-t{int(total_time_elapsed)}"
-
-        # Check if the transcription for this chunk is already completed
-        if is_transcription_completed(chunk_id):
-            print(f"\t↪ Skipping already transcribed {audio}...")
-            total_time_elapsed += duration
-            continue
 
         print(f"\t↪ Transcribing {audio}...")
         response = call_openai_api(audio)
@@ -122,9 +120,9 @@ def transcribe(audio_list, video_meta):
     return transcriptions
 
 
-def transcribe_audio(audio_path, video_meta, chunk_minutes_length=2):
+def transcribe_audio(audio_path, video_meta, chunk_seconds_length):
     try:
-        audio_list = create_chunks(audio_path, chunk_minutes_length)
+        audio_list = create_chunks(audio_path, chunk_seconds_length)
         transcriptions = transcribe(audio_list, video_meta)
         return transcriptions
     except Exception as e:
@@ -135,6 +133,7 @@ def transcribe_audio(audio_path, video_meta, chunk_minutes_length=2):
 
 def main():
     video_dict = load_video_dict("data/video_dict.json")
+
 
     with open("data/youtube-transcriptions.jsonl", "w", encoding="utf-8") as fp, open(
         "data/error.txt", "a", encoding="utf-8"
@@ -155,7 +154,9 @@ def main():
                 error_file.write(f"{error_message}\n")
                 continue
 
-            for meta in transcribe_audio(mp3_path, video_meta, 2):
+            chunk_length_seconds = 30
+
+            for meta in transcribe_audio(mp3_path, video_meta, chunk_length_seconds):
                 if isinstance(meta, str):  # It's an error title
                     error_file.write(f"{meta}\n")
                 else:
