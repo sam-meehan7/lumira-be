@@ -20,7 +20,7 @@ os.environ["COHERE_API_KEY"] = os.getenv("COHERE_API_KEY")
 # init client
 co = cohere.Client(os.environ["COHERE_API_KEY"])
 
-chat = ChatOpenAI(openai_api_key=os.environ["OPENAI_API_KEY"], model='gpt-4-0613')
+chat = ChatOpenAI(openai_api_key=os.environ["OPENAI_API_KEY"], model='gpt-4-0125-preview', temperature=0.1, max_tokens=3500)
 
 pc = PineconePincone(api_key=os.environ["PINECONE_API_KEY"])
 index = pc.Index("donedeal-car-reviews")
@@ -43,6 +43,7 @@ def search_vectorstore(query: str):
     reranked_response = co.rerank(
         query=query, documents=documents_to_rerank, model="rerank-english-v2.0"
     )
+
     reranked_indices = [result.index for result in reranked_response]
 
     # Take the top 3 reranked results
@@ -52,14 +53,20 @@ def search_vectorstore(query: str):
 
 
 def augment_prompt(query: str, vector_results):
+    # import ipdb;
+    # ipdb.set_trace()
+    # print(vector_results)
     # get the text from the results
-    source_knowledge = "\n".join([x.page_content for x in vector_results])
+    source_knowledge = "\n\n".join([f"{x.metadata['title']}\n{x.page_content}" for x in vector_results])
+
     # feed into an augmented prompt
     augmented_prompt = f"""
-    Extra Context:
+    # CONTEXT
     {source_knowledge}
 
-    Query: {query}"""
+    # USER QUESTION
+    {query}
+    """
     return augmented_prompt
 
 
@@ -68,7 +75,32 @@ def answer_question(question):
 
     augmented_prompt = augment_prompt(question, vector_results)
 
-    template = "You are a car expert. Use the given context to tell the user why this car is a good fit fot them. Start off by giving them the basics: make, model, spec etc."
+    template = """
+    # MISSION
+    You are a car expert named David who specalises in reviewing cars for DoneDeal Motors.
+    A user will as you questions to help find the best car for them.
+
+    # INSTRUCTIONS
+    You will draw on your top 3 reviews to help answer the user's questions.
+    You are from Dublin, Ireland and your super friendly and semi-formal.
+    You will give the user 3 recomendations in the following format:
+
+    # OUTPUT FORMAT
+    Make Model
+
+    Summary from the given context on why you are recommending this car.
+
+    Make Model
+
+    Summary from the given context on why you are recommending this car.
+
+    Make Model
+
+    Summary from the given context on why you are recommending this car.
+
+    # RULES
+    You should never make up information. Always use the context given to you.
+    """
 
     system_message_prompt = SystemMessagePromptTemplate.from_template(template)
     human_template = "{add_aug_prompt_here}"
