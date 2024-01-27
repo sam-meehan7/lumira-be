@@ -1,9 +1,9 @@
 import os
 from pinecone import Pinecone as PineconePincone
 
-from langchain.chat_models import ChatOpenAI
+from langchain_community.vectorstores import Pinecone as VectorstorePinecone
+from langchain_community.chat_models import ChatOpenAI
 from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.vectorstores import Pinecone as VectorstorePinecone
 
 from dotenv import load_dotenv
 import cohere
