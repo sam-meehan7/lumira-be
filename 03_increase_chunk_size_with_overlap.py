@@ -3,6 +3,7 @@ from tqdm import tqdm
 
 new_data = []
 
+# With a chunk size of 30 seconds and window=2, stride=1 we get 90 seconds chunks with 60 seconds of overlap.
 window = 2  # number of sentences to combine
 stride = 1  # number of sentences to 'stride' over, used to create overlap
 

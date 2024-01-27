@@ -15,7 +15,7 @@ pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])
 
 index_name = "donedeal-car-reviews"
 
-embed_model = OpenAIEmbeddings(model="text-embedding-3-large")
+embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
 
 # connect to index
 index = pc.Index(index_name)
