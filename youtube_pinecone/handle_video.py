@@ -82,13 +82,13 @@ def call_openai_api(audio_file):
         logging.error(f"Error occurred while calling OpenAI API: {str(e)}")
         return None
 
-def upload_to_pinecone(transcriptions, metadata, pc):
+def upload_to_pinecone(transcriptions, metadata, pc, user_id):
     try:
         index_name = "videos-index"
         index = pc.Index(index_name, spec=ServerlessSpec(cloud="aws", region="eu-west-1"))
 
-        window = 2  # number of chunks to combine
-        stride = 1  # number of chunks to 'stride' over, used to create overlap
+        window = 2
+        stride = 1
 
         combined_transcriptions = []
         for i in range(0, len(transcriptions), stride):
@@ -108,6 +108,7 @@ def upload_to_pinecone(transcriptions, metadata, pc):
             "text": t["text"],
             "start": t["start"],
             "end": t["end"],
+            "user_id": user_id,
             **metadata
         } for t in combined_transcriptions]
 
@@ -117,8 +118,7 @@ def upload_to_pinecone(transcriptions, metadata, pc):
         logging.error(f"Error occurred while uploading to Pinecone: {str(e)}")
         raise
 
-# Update the process_video function to use the new info structure
-def process_video(video_url, pc):
+def process_video(video_url, pc, user_id):
     try:
         audio_path, info = download_audio(video_url)
         if audio_path:
@@ -133,7 +133,7 @@ def process_video(video_url, pc):
                     "channel_id": info['channel_id'],
                     "channel_url": info['channel_url']
                 }
-                upload_to_pinecone(transcriptions, metadata, pc)
+                upload_to_pinecone(transcriptions, metadata, pc, user_id)
                 logging.info(f"Successfully processed video: {video_url}")
                 return True
             else:

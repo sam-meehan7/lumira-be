@@ -31,19 +31,27 @@ def initialize_vectorstore(pc):
     index = pc.Index("videos-index", spec=ServerlessSpec(cloud="aws", region="eu-west-1"))
     return PineconeVectorStore(index, embed_model, text_field)
 
-def search_vectorstore(query: str, vectorstore, video_id=None):
+def search_vectorstore(query: str, vectorstore, video_id=None, user_id=None):
     logging.info(f"Searching vectorstore for query: {query}")
     logging.info(f"Video ID filter: {video_id}")
+    logging.info(f"User ID filter: {user_id}")
 
+    # Build filter dictionary
+    filter_dict = {}
+    if user_id:
+        filter_dict["user_id"] = user_id
     if video_id:
-        filter = {"video_id": video_id}
-        results = vectorstore.similarity_search(query, k=25, filter=filter)
+        filter_dict["video_id"] = video_id
+
+    # Apply filters if any exist
+    if filter_dict:
+        results = vectorstore.similarity_search(query, k=25, filter=filter_dict)
     else:
         results = vectorstore.similarity_search(query, k=25)
 
     logging.info(f"Number of results before reranking: {len(results)}")
     for i, result in enumerate(results[:5]):  # Log details of the first 5 results
-        logging.info(f"Result {i+1}: Video ID: {result.metadata['video_id']}, Title: {result.metadata['title']}, Score: {result.score if hasattr(result, 'score') else 'N/A'}")
+        logging.info(f"Result {i+1}: User ID: {result.metadata.get('user_id', 'N/A')}, Video ID: {result.metadata['video_id']}, Title: {result.metadata['title']}")
 
     documents_to_rerank = [{"text": result.page_content} for result in results]
     reranked_response = co.rerank(query=query, documents=documents_to_rerank, model="rerank-english-v2.0")
@@ -68,9 +76,9 @@ def augment_prompt(query: str, vector_results):
     """
     return augmented_prompt
 
-def answer_question(question, pc, video_id=None):
+def answer_question(question, pc, video_id=None, user_id=None):
     vectorstore = initialize_vectorstore(pc)
-    vector_results = search_vectorstore(question, vectorstore, video_id=video_id)
+    vector_results = search_vectorstore(question, vectorstore, video_id=video_id, user_id=user_id)
     augmented_prompt = augment_prompt(question, vector_results)
 
 
