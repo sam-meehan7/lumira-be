@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
@@ -11,6 +11,8 @@ from ask_vector_and_supplment_with_ai import answer_question
 from handle_video import process_video
 import logging
 from auth import get_current_user
+from db import get_user_content_hours, set_payment_preference
+
 
 
 # Set up logging
@@ -55,19 +57,23 @@ class AnswerResponse(BaseModel):
     answer: str
     vectorResults: List[dict]
 
-# API endpoints
 @app.post("/api/upload")
 async def upload_video(
     request: VideoUploadRequest,
     user_id: str = Depends(get_current_user)
 ):
     try:
-        success = process_video(request.videoUrl, pc, user_id)
+        success = await process_video(request.videoUrl, pc, user_id)
         if success:
             return {"message": "Video processed and indexed successfully"}
         else:
             raise HTTPException(status_code=500, detail="Failed to process video")
+    except HTTPException as he:
+        # Pass through HTTP exceptions (including our 402 Payment Required)
+        logging.warning(f"HTTP Exception in upload_video: {str(he.detail)}")
+        raise he
     except Exception as e:
+        # Handle other unexpected errors
         logging.error(f"Error in upload_video: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -134,6 +140,32 @@ async def ask_question_about_video(
         logging.error(f"Error in ask_question_about_video: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/usage")
+async def get_usage_stats(user_id: str = Depends(get_current_user)):
+    try:
+        total_hours = await get_user_content_hours(user_id)
+        return {
+            "total_hours": round(total_hours, 2),
+            "limit_hours": 10,
+            "remaining_hours": round(10 - total_hours, 2)
+        }
+    except Exception as e:
+        logging.error(f"Error in get_usage_stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.post("/api/payment-preference")
+async def update_payment_preference(
+    request: Request,
+    willing_to_pay: bool = Body(...),  # Changed to use Body parameter
+    user_id: str = Depends(get_current_user)
+):
+    try:
+        result = await set_payment_preference(user_id, willing_to_pay)
+        return {"message": "Payment preference updated successfully", "data": result}
+    except Exception as e:
+        logging.error(f"Error updating payment preference: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
