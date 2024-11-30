@@ -2,6 +2,7 @@ import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
 import logging
+from typing import List
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -25,8 +26,8 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 async def insert_video(user_id: str, video_info: dict):
     try:
-        data = {
-            "user_id": user_id,
+        # First, prepare and insert/update the video record
+        video_data = {
             "video_id": video_info['id'],
             "title": video_info['title'],
             "duration_seconds": video_info['duration'],
@@ -37,8 +38,23 @@ async def insert_video(user_id: str, video_info: dict):
             "channel_url": video_info.get('channel_url')
         }
 
-        result = supabase.table('user_videos').insert(data).execute()
-        return result.data[0]
+        # Upsert the video record
+        video_result = supabase.table('videos')\
+            .upsert(video_data, on_conflict='video_id')\
+            .execute()
+
+        # Then create the user-video association
+        user_video_data = {
+            "user_id": user_id,
+            "video_id": video_info['id']
+        }
+
+        # Insert the user-video link
+        user_video_result = supabase.table('user_videos')\
+            .upsert(user_video_data, on_conflict='user_id,video_id')\
+            .execute()
+
+        return video_result.data[0]
     except Exception as e:
         logger.error(f"Failed to insert video: {str(e)}")
         raise Exception(f"Failed to insert video: {str(e)}")
@@ -74,3 +90,14 @@ async def set_payment_preference(user_id: str, willing_to_pay: bool):
     except Exception as e:
         logger.error(f"Failed to set payment preference: {str(e)}")
         raise Exception(f"Failed to set payment preference: {str(e)}")
+
+async def get_user_video_ids(user_id: str) -> List[str]:
+    try:
+        result = supabase.table('user_videos')\
+            .select('video_id')\
+            .eq('user_id', user_id)\
+            .execute()
+        return [row['video_id'] for row in result.data]
+    except Exception as e:
+        logger.error(f"Failed to get user video IDs: {str(e)}")
+        raise Exception(f"Failed to get user video IDs: {str(e)}")

@@ -11,7 +11,7 @@ from ask_vector_and_supplment_with_ai import answer_question
 from handle_video import process_video
 import logging
 from auth import get_current_user
-from db import get_user_content_hours, set_payment_preference
+from db import get_user_content_hours, set_payment_preference, get_user_video_ids
 
 
 
@@ -80,13 +80,16 @@ async def upload_video(
 @app.get("/api/videos", response_model=List[VideoResponse])
 async def get_indexed_videos(user_id: str = Depends(get_current_user)):
     try:
+     # Get user's video IDs from Supabase
+        user_video_ids = await get_user_video_ids(user_id)
+
+        # Query Pinecone with these video IDs
         index = pc.Index("videos-index")
-        # Filter by user_id
         results = index.query(
             vector=[0]*1536,
             top_k=10000,
             include_metadata=True,
-            filter={"user_id": user_id}
+            filter={"video_id": {"$in": user_video_ids}}
         )
         videos = {}
         for match in results['matches']:
@@ -105,12 +108,12 @@ async def get_indexed_videos(user_id: str = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/ask")
-async def ask_question(
+async def ask_question_endpoint(
     request: QuestionRequest,
     user_id: str = Depends(get_current_user)
 ):
     try:
-        answer, vector_results = answer_question(request.question, pc, user_id=user_id)
+        answer, vector_results = await answer_question(request.question, pc, user_id=user_id)
         return AnswerResponse(
             answer=answer,
             vectorResults=[result.metadata for result in vector_results]
@@ -120,13 +123,13 @@ async def ask_question(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/ask/{video_id}")
-async def ask_question_about_video(
+async def ask_question_about_video_endpoint(
     video_id: str,
     request: QuestionRequest,
     user_id: str = Depends(get_current_user)
 ):
     try:
-        answer, vector_results = answer_question(
+        answer, vector_results = await answer_question(
             request.question,
             pc,
             video_id=video_id,
@@ -138,19 +141,6 @@ async def ask_question_about_video(
         )
     except Exception as e:
         logging.error(f"Error in ask_question_about_video: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/usage")
-async def get_usage_stats(user_id: str = Depends(get_current_user)):
-    try:
-        total_hours = await get_user_content_hours(user_id)
-        return {
-            "total_hours": round(total_hours, 2),
-            "limit_hours": 10,
-            "remaining_hours": round(10 - total_hours, 2)
-        }
-    except Exception as e:
-        logging.error(f"Error in get_usage_stats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

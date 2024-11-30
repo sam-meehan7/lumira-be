@@ -4,6 +4,7 @@ from langchain_community.vectorstores import Pinecone as VectorstorePinecone
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
+from db import get_user_video_ids
 import cohere
 from pinecone import Pinecone, ServerlessSpec
 from langchain_pinecone import PineconeVectorStore
@@ -31,17 +32,17 @@ def initialize_vectorstore(pc):
     index = pc.Index("videos-index", spec=ServerlessSpec(cloud="aws", region="eu-west-1"))
     return PineconeVectorStore(index, embed_model, text_field)
 
-def search_vectorstore(query: str, vectorstore, video_id=None, user_id=None):
+async def search_vectorstore(query: str, vectorstore, video_id=None, user_id=None):
     logging.info(f"Searching vectorstore for query: {query}")
-    logging.info(f"Video ID filter: {video_id}")
-    logging.info(f"User ID filter: {user_id}")
 
     # Build filter dictionary
     filter_dict = {}
-    if user_id:
-        filter_dict["user_id"] = user_id
     if video_id:
         filter_dict["video_id"] = video_id
+    elif user_id:
+        # Get list of video IDs this user has access to
+        user_video_ids = await get_user_video_ids(user_id)
+        filter_dict["video_id"] = {"$in": user_video_ids}
 
     # Apply filters if any exist
     if filter_dict:
@@ -76,11 +77,10 @@ def augment_prompt(query: str, vector_results):
     """
     return augmented_prompt
 
-def answer_question(question, pc, video_id=None, user_id=None):
+async def answer_question(question, pc, video_id=None, user_id=None):
     vectorstore = initialize_vectorstore(pc)
-    vector_results = search_vectorstore(question, vectorstore, video_id=video_id, user_id=user_id)
+    vector_results = await search_vectorstore(question, vectorstore, video_id=video_id, user_id=user_id)
     augmented_prompt = augment_prompt(question, vector_results)
-
 
     template = """
     # MISSION

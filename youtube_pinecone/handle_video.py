@@ -13,8 +13,7 @@ import yt_dlp
 from pinecone import Pinecone, ServerlessSpec
 from db import insert_video, get_user_content_hours
 from fastapi import HTTPException
-
-
+from db import supabase, insert_video, get_user_content_hours
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -86,7 +85,7 @@ def call_openai_api(audio_file):
         logging.error(f"Error occurred while calling OpenAI API: {str(e)}")
         return None
 
-def upload_to_pinecone(transcriptions, metadata, pc, user_id):
+def upload_to_pinecone(transcriptions, metadata, pc):
     try:
         index_name = "videos-index"
         index = pc.Index(index_name, spec=ServerlessSpec(cloud="aws", region="eu-west-1"))
@@ -112,7 +111,6 @@ def upload_to_pinecone(transcriptions, metadata, pc, user_id):
             "text": t["text"],
             "start": t["start"],
             "end": t["end"],
-            "user_id": user_id,
             **metadata
         } for t in combined_transcriptions]
 
@@ -122,34 +120,6 @@ def upload_to_pinecone(transcriptions, metadata, pc, user_id):
         logging.error(f"Error occurred while uploading to Pinecone: {str(e)}")
         raise
 
-async def check_content_hours_limit(user_id, video_duration):
-    """Check if adding a new video would exceed the user's content limit."""
-    SECONDS_LIMIT = 300  # 1 hour in seconds
-    logging.info(f"Checking content limit for user {user_id}")
-
-    current_seconds = await get_user_content_hours(user_id)
-    current_seconds = current_seconds * 3600
-
-    if current_seconds + video_duration > SECONDS_LIMIT:
-        logging.warning(
-            f"Content limit exceeded for user {user_id}. "
-            f"Current: {current_seconds} seconds, Attempted to add: {video_duration} seconds"
-        )
-        raise HTTPException(
-            status_code=402,  # Payment Required
-            detail={
-                "error": "content_limit_reached",
-                "message": "Content limit reached",
-                "current_usage": current_seconds,
-                "attempted_add": video_duration,
-                "limit": SECONDS_LIMIT,
-                "upgrade_required": True
-            }
-        )
-
-    logging.info(f"Content limit check passed for user {user_id}")
-    return True
-
 async def process_video(video_url, pc, user_id):
     try:
         logging.info(f"Starting video processing for URL: {video_url}, User: {user_id}")
@@ -158,52 +128,68 @@ async def process_video(video_url, pc, user_id):
         logging.info("Fetching video information...")
         ydl_opts = {
             'format': 'bestaudio/best',
-            'quiet': False,  # Changed to False to see yt-dlp logs
-            'no_warnings': False,  # Changed to False to see warnings
+            'quiet': False,
+            'no_warnings': False,
             'extract_flat': True
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             logging.info(f"Video information retrieved: {info['title']}")
 
-        # Check content hours limit
-        await check_content_hours_limit(user_id, info['duration'])
-
-        # Continue with video processing
-        logging.info("Downloading audio...")
-        audio_path, info = download_audio(video_url)
-        if not audio_path or not info:
-            logging.error("Failed to download audio")
-            return False
-
-        logging.info(f"Audio downloaded successfully to: {audio_path}")
-        logging.info("Transcribing audio...")
-        transcriptions = transcribe_audio(audio_path)
-        if not transcriptions:
-            logging.error("Failed to transcribe audio")
-            return False
-
-        logging.info(f"Successfully transcribed {len(transcriptions)} segments")
-
-        # Save to database
+        # Save to database (this will handle both video and user-video records)
         logging.info("Saving video information to database...")
         await insert_video(user_id, {**info, 'url': video_url})
 
-        # Upload to Pinecone
-        logging.info("Preparing metadata for Pinecone upload...")
-        metadata = {
-            "video_id": info['id'],
-            "title": info['title'],
-            "url": video_url,
-            "thumbnail": info['thumbnail'],
-            "author": info['uploader'],
-            "channel_id": info['channel_id'],
-            "channel_url": info['channel_url'],
-            "duration": info['duration']
-        }
+        # Check if video has already been processed
+        video_result = supabase.table('videos')\
+            .select('*')\
+            .eq('video_id', info['id'])\
+            .eq('processed', True)\
+            .execute()
 
-        logging.info("Uploading transcriptions to Pinecone...")
-        upload_to_pinecone(transcriptions, metadata, pc, user_id)
+        if len(video_result.data) == 0:
+            logging.info("Video hasn't been processed before. Starting processing...")
+
+            # Download and process audio
+            logging.info("Downloading audio...")
+            audio_path, _ = download_audio(video_url)
+            if not audio_path:
+                logging.error("Failed to download audio")
+                return False
+
+            logging.info(f"Audio downloaded successfully to: {audio_path}")
+            logging.info("Transcribing audio...")
+            transcriptions = transcribe_audio(audio_path)
+            if not transcriptions:
+                logging.error("Failed to transcribe audio")
+                return False
+
+            logging.info(f"Successfully transcribed {len(transcriptions)} segments")
+
+
+            logging.info("Preparing metadata for Pinecone upload...")
+            metadata = {
+                "video_id": info['id'],
+                "title": info['title'],
+                "url": video_url,
+                "thumbnail": info['thumbnail'],
+                "author": info['uploader'],
+                "channel_id": info['channel_id'],
+                "channel_url": info['channel_url'],
+                "duration": info['duration']
+            }
+
+            logging.info("Uploading transcriptions to Pinecone...")
+            upload_to_pinecone(transcriptions, metadata, pc)
+
+            # Mark video as processed
+            logging.info("Marking video as processed in database...")
+            supabase.table('videos')\
+                .update({"processed": True})\
+                .eq('video_id', info['id'])\
+                .execute()
+        else:
+            logging.info("Video has already been processed. Skipping processing step.")
 
         logging.info(f"Successfully processed video: {info['title']}")
         return True
