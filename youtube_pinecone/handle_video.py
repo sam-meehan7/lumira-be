@@ -166,7 +166,7 @@ async def process_video(video_url, pc, user_id):
 
             logging.info(f"Successfully transcribed {len(transcriptions)} segments")
 
-            # Upload to Pinecone (without user_id)
+
             logging.info("Preparing metadata for Pinecone upload...")
             metadata = {
                 "video_id": info['id'],
