@@ -14,6 +14,9 @@ from pinecone import Pinecone, ServerlessSpec
 from db import insert_video, get_user_content_hours
 from fastapi import HTTPException
 from db import supabase, insert_video, get_user_content_hours
+import tempfile
+import os
+from pathlib import Path
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -28,7 +31,10 @@ except Exception as e:
     logging.error(f"Failed to initialize OpenAI Embeddings: {str(e)}")
     raise
 
-def download_audio(video_url):
+def download_audio(video_url, temp_dir):
+    logging.info(f"Starting audio download for URL: {video_url}")
+    logging.info(f"Using temporary directory at: {temp_dir}")
+
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -36,13 +42,19 @@ def download_audio(video_url):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'outtmpl': 'data/%(id)s/%(id)s.%(ext)s',
+        'outtmpl': str(Path(temp_dir) / '%(id)s.%(ext)s'),
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            logging.info("Extracting video information and downloading audio...")
             info = ydl.extract_info(video_url, download=True)
             video_id = info['id']
-            audio_path = f"data/{video_id}/{video_id}.mp3"
+            audio_path = str(Path(temp_dir) / f"{video_id}.mp3")
+            logging.info(f"Audio downloaded successfully to temporary path: {audio_path}")
+            if os.path.exists(audio_path):
+                logging.info(f"Verified audio file exists. Size: {os.path.getsize(audio_path)} bytes")
+            else:
+                logging.error(f"Audio file not found at expected path: {audio_path}")
             return audio_path, info
     except Exception as e:
         logging.error(f"Error occurred while downloading audio: {str(e)}")
@@ -50,26 +62,53 @@ def download_audio(video_url):
 
 def transcribe_audio(audio_path):
     try:
+        logging.info(f"Starting audio transcription for file: {audio_path}")
+        if not os.path.exists(audio_path):
+            logging.error(f"Audio file not found at: {audio_path}")
+            return []
+
         chunk_seconds_length = 30
+        logging.info(f"Loading audio file into memory using pydub...")
         audio = AudioSegment.from_mp3(audio_path)
         chunk_duration_ms = chunk_seconds_length * 1000
         total_duration_ms = len(audio)
+        total_chunks = (total_duration_ms + chunk_duration_ms - 1) // chunk_duration_ms
+        logging.info(f"Audio duration: {total_duration_ms}ms, will be split into {total_chunks} chunks")
+
         transcriptions = []
 
-        for start_ms in range(0, total_duration_ms, chunk_duration_ms):
-            end_ms = min(start_ms + chunk_duration_ms, total_duration_ms)
-            chunk = audio[start_ms:end_ms]
-            chunk_path = f"{audio_path}_{start_ms // chunk_duration_ms}.mp3"
-            chunk.export(chunk_path, format="mp3")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            logging.info(f"Created temporary directory for chunks at: {temp_dir}")
 
-            response = call_openai_api(chunk_path)
-            if response:
-                transcriptions.append({
-                    "start": start_ms // 1000,
-                    "end": end_ms // 1000,
-                    "text": response.text.strip()
-                })
-            os.remove(chunk_path)  # Clean up temporary chunk file
+            for start_ms in range(0, total_duration_ms, chunk_duration_ms):
+                end_ms = min(start_ms + chunk_duration_ms, total_duration_ms)
+                chunk = audio[start_ms:end_ms]
+
+                # Create temporary file for this chunk
+                temp_chunk_path = Path(temp_dir) / f"chunk_{start_ms}.mp3"
+                logging.info(f"Exporting chunk {start_ms//chunk_duration_ms + 1}/{total_chunks} to: {temp_chunk_path}")
+                chunk.export(str(temp_chunk_path), format="mp3")
+
+                if os.path.exists(temp_chunk_path):
+                    logging.info(f"Chunk file created successfully. Size: {os.path.getsize(temp_chunk_path)} bytes")
+                else:
+                    logging.error(f"Failed to create chunk file at: {temp_chunk_path}")
+                    continue
+
+                logging.info(f"Transcribing chunk {start_ms//chunk_duration_ms + 1}/{total_chunks}...")
+                response = call_openai_api(str(temp_chunk_path))
+                if response:
+                    transcriptions.append({
+                        "start": start_ms // 1000,
+                        "end": end_ms // 1000,
+                        "text": response.text.strip()
+                    })
+                    logging.info(f"Successfully transcribed chunk {start_ms//chunk_duration_ms + 1}")
+                else:
+                    logging.error(f"Failed to transcribe chunk {start_ms//chunk_duration_ms + 1}")
+
+            logging.info(f"Completed transcription of all chunks. Total transcriptions: {len(transcriptions)}")
+
         return transcriptions
     except Exception as e:
         logging.error(f"Error occurred while transcribing audio: {str(e)}")
@@ -150,44 +189,47 @@ async def process_video(video_url, pc, user_id):
         if len(video_result.data) == 0:
             logging.info("Video hasn't been processed before. Starting processing...")
 
-            # Download and process audio
-            logging.info("Downloading audio...")
-            audio_path, _ = download_audio(video_url)
-            if not audio_path:
-                logging.error("Failed to download audio")
-                return False
+            # Create a temporary directory that will persist through the entire process
+            with tempfile.TemporaryDirectory() as temp_dir:
+                logging.info(f"Created main temporary directory at: {temp_dir}")
 
-            logging.info(f"Audio downloaded successfully to: {audio_path}")
-            logging.info("Transcribing audio...")
-            transcriptions = transcribe_audio(audio_path)
-            if not transcriptions:
-                logging.error("Failed to transcribe audio")
-                return False
+                # Download and process audio
+                logging.info("Downloading audio...")
+                audio_path, _ = download_audio(video_url, temp_dir)  # Pass temp_dir to download_audio
+                if not audio_path:
+                    logging.error("Failed to download audio")
+                    return False
 
-            logging.info(f"Successfully transcribed {len(transcriptions)} segments")
+                logging.info(f"Audio downloaded successfully to: {audio_path}")
+                logging.info("Transcribing audio...")
+                transcriptions = transcribe_audio(audio_path)
+                if not transcriptions:
+                    logging.error("Failed to transcribe audio")
+                    return False
 
+                logging.info(f"Successfully transcribed {len(transcriptions)} segments")
 
-            logging.info("Preparing metadata for Pinecone upload...")
-            metadata = {
-                "video_id": info['id'],
-                "title": info['title'],
-                "url": video_url,
-                "thumbnail": info['thumbnail'],
-                "author": info['uploader'],
-                "channel_id": info['channel_id'],
-                "channel_url": info['channel_url'],
-                "duration": info['duration']
-            }
+                logging.info("Preparing metadata for Pinecone upload...")
+                metadata = {
+                    "video_id": info['id'],
+                    "title": info['title'],
+                    "url": video_url,
+                    "thumbnail": info['thumbnail'],
+                    "author": info['uploader'],
+                    "channel_id": info['channel_id'],
+                    "channel_url": info['channel_url'],
+                    "duration": info['duration']
+                }
 
-            logging.info("Uploading transcriptions to Pinecone...")
-            upload_to_pinecone(transcriptions, metadata, pc)
+                logging.info("Uploading transcriptions to Pinecone...")
+                upload_to_pinecone(transcriptions, metadata, pc)
 
-            # Mark video as processed
-            logging.info("Marking video as processed in database...")
-            supabase.table('videos')\
-                .update({"processed": True})\
-                .eq('video_id', info['id'])\
-                .execute()
+                # Mark video as processed
+                logging.info("Marking video as processed in database...")
+                supabase.table('videos')\
+                    .update({"processed": True})\
+                    .eq('video_id', info['id'])\
+                    .execute()
         else:
             logging.info("Video has already been processed. Skipping processing step.")
 

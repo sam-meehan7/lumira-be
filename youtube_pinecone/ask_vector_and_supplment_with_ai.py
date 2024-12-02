@@ -52,7 +52,7 @@ async def search_vectorstore(query: str, vectorstore, video_id=None, user_id=Non
 
     logging.info(f"Number of results before reranking: {len(results)}")
     for i, result in enumerate(results[:5]):  # Log details of the first 5 results
-        logging.info(f"Result {i+1}: User ID: {result.metadata.get('user_id', 'N/A')}, Video ID: {result.metadata['video_id']}, Title: {result.metadata['title']}")
+        logging.info(f"Result {i+1}:, Video ID: {result.metadata['video_id']}, Title: {result.metadata['title']}")
 
     documents_to_rerank = [{"text": result.page_content} for result in results]
     reranked_response = co.rerank(query=query, documents=documents_to_rerank, model="rerank-english-v2.0")
