@@ -4,7 +4,7 @@ from langchain_community.vectorstores import Pinecone as VectorstorePinecone
 from langchain_openai import OpenAIEmbeddings
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
-from db import get_user_video_ids
+from youtube_pinecone.db import get_user_video_ids
 import cohere
 from pinecone import Pinecone, ServerlessSpec
 from langchain_pinecone import PineconeVectorStore
@@ -22,15 +22,24 @@ os.environ["COHERE_API_KEY"] = os.getenv("COHERE_API_KEY")
 co = cohere.Client(os.environ["COHERE_API_KEY"])
 # Initialize Pinecone
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-chat = ChatOpenAI(openai_api_key=os.environ["OPENAI_API_KEY"], model='gpt-4o', temperature=0.1, max_tokens=3500)
+chat = ChatOpenAI(
+    openai_api_key=os.environ["OPENAI_API_KEY"],
+    model="gpt-4o",
+    temperature=0.1,
+    max_tokens=3500,
+)
 
 embed_model = OpenAIEmbeddings(model="text-embedding-3-small")
 
 text_field = "text"  # the metadata field that contains our text
 
+
 def initialize_vectorstore(pc):
-    index = pc.Index("videos-index", spec=ServerlessSpec(cloud="aws", region="eu-west-1"))
+    index = pc.Index(
+        "videos-index", spec=ServerlessSpec(cloud="aws", region="eu-west-1")
+    )
     return PineconeVectorStore(index, embed_model, text_field)
+
 
 async def search_vectorstore(query: str, vectorstore, video_id=None, user_id=None):
     logging.info(f"Searching vectorstore for query: {query}")
@@ -52,22 +61,33 @@ async def search_vectorstore(query: str, vectorstore, video_id=None, user_id=Non
 
     logging.info(f"Number of results before reranking: {len(results)}")
     for i, result in enumerate(results[:5]):  # Log details of the first 5 results
-        logging.info(f"Result {i+1}:, Video ID: {result.metadata['video_id']}, Title: {result.metadata['title']}")
+        logging.info(
+            f"Result {i+1}:, Video ID: {result.metadata['video_id']}, Title: {result.metadata['title']}"
+        )
 
     documents_to_rerank = [{"text": result.page_content} for result in results]
-    reranked_response = co.rerank(query=query, documents=documents_to_rerank, model="rerank-english-v2.0")
+    reranked_response = co.rerank(
+        query=query, documents=documents_to_rerank, model="rerank-english-v2.0"
+    )
     reranked_indices = [result.index for result in reranked_response]
     top_3_results = [results[i] for i in reranked_indices[:3]]
 
     # Sort the top 3 results by start time
-    sorted_top_3_results = sorted(top_3_results, key=lambda x: float(x.metadata['start']))
+    sorted_top_3_results = sorted(
+        top_3_results, key=lambda x: float(x.metadata["start"])
+    )
 
-    logging.info(f"Top 3 video IDs after reranking: {[result.metadata['video_id'] for result in sorted_top_3_results]}")
+    logging.info(
+        f"Top 3 video IDs after reranking: {[result.metadata['video_id'] for result in sorted_top_3_results]}"
+    )
 
     return sorted_top_3_results
 
+
 def augment_prompt(query: str, vector_results):
-    source_knowledge = "\n\n".join([f"{x.metadata['title']}\n{x.page_content}" for x in vector_results])
+    source_knowledge = "\n\n".join(
+        [f"{x.metadata['title']}\n{x.page_content}" for x in vector_results]
+    )
     augmented_prompt = f"""
     # CONTEXT
     {source_knowledge}
@@ -77,9 +97,12 @@ def augment_prompt(query: str, vector_results):
     """
     return augmented_prompt
 
+
 async def answer_question(question, pc, video_id=None, user_id=None):
     vectorstore = initialize_vectorstore(pc)
-    vector_results = await search_vectorstore(question, vectorstore, video_id=video_id, user_id=user_id)
+    vector_results = await search_vectorstore(
+        question, vectorstore, video_id=video_id, user_id=user_id
+    )
     augmented_prompt = augment_prompt(question, vector_results)
 
     template = """
@@ -106,7 +129,11 @@ async def answer_question(question, pc, video_id=None, user_id=None):
     system_message_prompt = SystemMessagePromptTemplate.from_template(template)
     human_template = "{add_aug_prompt_here}"
     human_message_prompt = HumanMessagePromptTemplate.from_template(human_template)
-    chat_prompt = ChatPromptTemplate.from_messages([system_message_prompt, human_message_prompt])
-    formatted_messages = chat_prompt.format_prompt(add_aug_prompt_here=augmented_prompt, text="").to_messages()
+    chat_prompt = ChatPromptTemplate.from_messages(
+        [system_message_prompt, human_message_prompt]
+    )
+    formatted_messages = chat_prompt.format_prompt(
+        add_aug_prompt_here=augmented_prompt, text=""
+    ).to_messages()
     result = chat.invoke(formatted_messages)
     return [result.content, vector_results]
