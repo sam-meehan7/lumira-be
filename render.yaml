@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: youtube-pinecone-api
+    env: python
+    buildCommand: pip install poetry && poetry install
+    startCommand: poetry run uvicorn youtube_pinecone.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.1
