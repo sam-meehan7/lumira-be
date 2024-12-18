@@ -7,11 +7,11 @@ from dotenv import load_dotenv
 from pinecone import Pinecone
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Pinecone as VectorstorePinecone
-from ask_vector_and_supplment_with_ai import answer_question
-from handle_video import process_video
+from youtube_pinecone.ask_vector_and_supplment_with_ai import answer_question
+from youtube_pinecone.handle_video import process_video
 import logging
-from auth import get_current_user
-from db import get_user_content_hours, set_payment_preference, get_user_video_ids
+from youtube_pinecone.auth import get_current_user
+from youtube_pinecone.db import set_payment_preference, get_user_video_ids
 
 
 # Set up logging
