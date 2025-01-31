@@ -16,7 +16,10 @@ from fastapi import HTTPException
 from youtube_pinecone.db import supabase, insert_video, get_user_content_hours
 import tempfile
 import os
+import time
 from pathlib import Path
+import subprocess
+from packaging import version
 
 # Set up logging
 logging.basicConfig(
@@ -34,12 +37,44 @@ except Exception as e:
     raise
 
 
-def download_audio(video_url, temp_dir):
+def update_yt_dlp():
+    try:
+        # Get current version
+        result = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True)
+        current_version = result.stdout.strip()
+
+        # Get latest version from PyPI
+        result = subprocess.run(
+            ["pip", "index", "versions", "yt-dlp"], capture_output=True, text=True
+        )
+        latest_version = result.stdout.split("(")[1].split(")")[0]
+
+        if version.parse(current_version) < version.parse(latest_version):
+            logging.info(f"Updating yt-dlp from {current_version} to {latest_version}")
+            subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], check=True)
+            return True
+        return False
+    except Exception as e:
+        logging.error(f"Error updating yt-dlp: {str(e)}")
+        return False
+
+
+def download_audio(video_url, temp_dir, video_info=None):
     logging.info(f"Starting audio download for URL: {video_url}")
     logging.info(f"Using temporary directory at: {temp_dir}")
 
-    ydl_opts = {
-        "format": "bestaudio/best",
+    # Define different format configurations to try
+    format_configs = [
+        "bestaudio[ext=m4a]",
+        "bestaudio[ext=mp3]",
+        "bestaudio",
+        "140",  # Common audio-only format for YouTube
+        "251",  # Common audio-only format for YouTube (WebM)
+        "best[ext=m4a]",
+        "best",
+    ]
+
+    base_opts = {
         "postprocessors": [
             {
                 "key": "FFmpegExtractAudio",
@@ -48,26 +83,45 @@ def download_audio(video_url, temp_dir):
             }
         ],
         "outtmpl": str(Path(temp_dir) / "%(id)s.%(ext)s"),
+        "quiet": False,
+        "no_warnings": False,
+        "extract_audio": True,
     }
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            logging.info("Extracting video information and downloading audio...")
-            info = ydl.extract_info(video_url, download=True)
-            video_id = info["id"]
-            audio_path = str(Path(temp_dir) / f"{video_id}.mp3")
-            logging.info(
-                f"Audio downloaded successfully to temporary path: {audio_path}"
-            )
-            if os.path.exists(audio_path):
-                logging.info(
-                    f"Verified audio file exists. Size: {os.path.getsize(audio_path)} bytes"
+
+    for format_option in format_configs:
+        try:
+            logging.info(f"Attempting download with format: {format_option}")
+            ydl_opts = {
+                **base_opts,
+                "format": format_option,
+            }
+
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                if video_info is None:
+                    info = ydl.extract_info(video_url, download=True)
+                else:
+                    info = ydl.process_ie_result(video_info, download=True)
+
+                video_id = info["id"]
+                audio_path = str(Path(temp_dir) / f"{video_id}.mp3")
+
+                # Check if file exists and has content
+                if os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+                    logging.info(
+                        f"Successfully downloaded audio using format: {format_option}"
+                    )
+                    return audio_path, info
+
+                logging.warning(
+                    f"Download appeared to succeed but file not found or empty with format: {format_option}"
                 )
-            else:
-                logging.error(f"Audio file not found at expected path: {audio_path}")
-            return audio_path, info
-    except Exception as e:
-        logging.error(f"Error occurred while downloading audio: {str(e)}")
-        return None, None
+
+        except Exception as e:
+            logging.warning(f"Failed to download with format {format_option}: {str(e)}")
+            continue
+
+    logging.error("All download attempts failed")
+    return None, None
 
 
 def transcribe_audio(audio_path):
@@ -99,7 +153,7 @@ def transcribe_audio(audio_path):
                 # Create temporary file for this chunk
                 temp_chunk_path = Path(temp_dir) / f"chunk_{start_ms}.mp3"
                 logging.info(
-                    f"Exporting chunk {start_ms//chunk_duration_ms + 1}/{total_chunks} to: {temp_chunk_path}"
+                    f"Exporting chunk {start_ms // chunk_duration_ms + 1}/{total_chunks} to: {temp_chunk_path}"
                 )
                 chunk.export(str(temp_chunk_path), format="mp3")
 
@@ -112,7 +166,7 @@ def transcribe_audio(audio_path):
                     continue
 
                 logging.info(
-                    f"Transcribing chunk {start_ms//chunk_duration_ms + 1}/{total_chunks}..."
+                    f"Transcribing chunk {start_ms // chunk_duration_ms + 1}/{total_chunks}..."
                 )
                 response = call_openai_api(str(temp_chunk_path))
                 if response:
@@ -124,11 +178,11 @@ def transcribe_audio(audio_path):
                         }
                     )
                     logging.info(
-                        f"Successfully transcribed chunk {start_ms//chunk_duration_ms + 1}"
+                        f"Successfully transcribed chunk {start_ms // chunk_duration_ms + 1}"
                     )
                 else:
                     logging.error(
-                        f"Failed to transcribe chunk {start_ms//chunk_duration_ms + 1}"
+                        f"Failed to transcribe chunk {start_ms // chunk_duration_ms + 1}"
                     )
 
             logging.info(
@@ -198,16 +252,21 @@ def upload_to_pinecone(transcriptions, metadata, pc):
 
 async def process_video(video_url, pc, user_id):
     try:
+        # First try to update yt-dlp
+        try:
+            subprocess.run(["pip", "install", "--upgrade", "yt-dlp"], check=True)
+            logging.info("Successfully updated yt-dlp")
+        except Exception as e:
+            logging.warning(f"Failed to update yt-dlp: {str(e)}")
+
         logging.info(f"Starting video processing for URL: {video_url}, User: {user_id}")
 
         # Get video info without downloading
-        logging.info("Fetching video information...")
         ydl_opts = {
-            "format": "bestaudio/best",
-            "quiet": False,
-            "no_warnings": False,
+            "quiet": True,
             "extract_flat": True,
         }
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
             logging.info(f"Video information retrieved: {info['title']}")

@@ -29,7 +29,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3002",
+        "http://localhost:3000",
         "https://lumira-phi.vercel.app",
     ],  # Update this with your React app's URL
     allow_credentials=True,
